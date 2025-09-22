@@ -719,10 +719,10 @@ elif st.session_state.page == 'prediction':
             if st.button("Prédire"):
                 try:
                     # Charger modèle + encodeur
-                    model = joblib.load("C:\\Users\\NoVa\\Documents\\lgb_model.joblib")
+                    model = joblib.load("C:\\Users\\NoVa\\Documents\\SPE\\lgb_model.joblib")
                     encoder = None
-                    if os.path.exists("C:\\Users\\NoVa\\Documents\\ordinal_encoder.joblib"):
-                        encoder = joblib.load("C:\\Users\\NoVa\\Documents\\ordinal_encoder.joblib")
+                    if os.path.exists("C:\\Users\\NoVa\\Documents\\SPE\\ordinal_encoder.joblib"):
+                        encoder = joblib.load("C:\\Users\\NoVa\\Documents\\SPE\\ordinal_encoder.joblib")
 
                     # Renommer les colonnes selon le mapping
                     X_new = df_uploaded.rename(columns=mapping_colonnes).copy()
