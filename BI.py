@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+
 # =========================
-# 1. Chargement des données
+# 1. Chargement des données (VERSION CORRIGÉE)
 # =========================
-@st.cache_data
+@st.cache_data(ttl=60)  # Cache expire après 60 secondes
 def load_data():
     df = pd.read_excel("data.xlsx")
     if "Date_Creation" in df.columns:
@@ -13,6 +14,14 @@ def load_data():
     return df
 
 df = load_data()
+
+# FORCER le rechargement des données pour voir les modifications
+if st.sidebar.button("🔄 Actualiser les données"):
+    st.cache_data.clear()
+    st.rerun()
+
+# Vérification d'urgence - afficher les colonnes disponibles
+st.sidebar.write("Colonnes disponibles:", list(df.columns))
 
 # =========================
 # 2. Configuration de la page
@@ -231,138 +240,138 @@ if st.session_state.page == 'confirmation':
                 chart_card(df_conf_shift, "Shift", title="Confirmées : Matin vs Soir")
 
     # =========================
-    # 9. Graphiques d’évolution (avec filtre global)
+    # 9. Graphiques d'évolution (avec filtre global)
     # =========================
-    if "Date_Creation" in df.columns:
-        df["Annee"] = df["Date_Creation"].dt.year
-        df["Mois"] = df["Date_Creation"].dt.to_period("M").astype(str)
 
-        st.subheader(" Évolution des commandes")
 
-        mode = st.radio("Type d’analyse :", ["Mensuelle", "Annuelle"], horizontal=True)
+if "Date_Creation" in df.columns:
+    df["Annee"] = df["Date_Creation"].dt.year
+    df["Mois"] = df["Date_Creation"].dt.to_period("M").astype(str)
 
-        # ===== Mode Mensuel =====
-        if mode == "Mensuelle":
-            mois_dispo = sorted(df["Mois"].unique())
-            mois_select = st.selectbox("Choisir un mois :", mois_dispo, key="mois_global")
+    st.subheader("📈 Évolution des commandes")
 
-            df_mois = df[df["Mois"] == mois_select]
+    mode = st.radio("Type d'analyse :", ["Mensuelle", "Annuelle"], horizontal=True)
 
-            evo_col1, evo_col2 = st.columns(2)
+    # ===== Mode Mensuel =====
+    if mode == "Mensuelle":
+        mois_dispo = sorted(df["Mois"].unique())
+        mois_select = st.selectbox("Choisir un mois :", mois_dispo, key="mois_global")
 
-            # Graphe total (gauche)
-            with evo_col1:
-                df_grouped = df_mois.groupby(
-                    [df_mois["Date_Creation"].dt.day, "Etat_Commande"]
-                ).size().reset_index(name="Nombre De Commandes")
-                df_grouped.rename(columns={"Date_Creation": "Jour"}, inplace=True)
+        df_mois = df[df["Mois"] == mois_select]
 
-                fig_total = px.bar(
-                    df_grouped,
-                    x="Jour",
-                    y="Nombre De Commandes",
-                    color="Etat_Commande",
-                    title=f"Évolution des commandes - {mois_select}",
-                    barmode="stack",
-                    category_orders={"Etat_Commande": ["Confirmée", "En confirmation", "Annulée"]},
-                    color_discrete_map={
-                        "Confirmée": "#4DA6FF",
-                        "En confirmation": "#FFD966",
-                        "Annulée": "#FF4C4C"
-                    }
-                )
-                fig_total.update_layout(height=450)
-                st.plotly_chart(fig_total, use_container_width=True)
+        # Créer deux colonnes pour les graphiques
+        evo_col1, evo_col2 = st.columns(2)
 
-            # Graphe livrées (droite)
-            with evo_col2:
-                df_grouped2 = df_mois.groupby(
-                    [df_mois["Date_Creation"].dt.day, "Etat_Livraison"]
-                ).size().reset_index(name="Nombre De Commandes")
-                df_grouped2.rename(columns={"Date_Creation": "Jour"}, inplace=True)
+        # Graphique d'évolution des commandes (gauche)
+        with evo_col1:
+            df_grouped = df_mois.groupby(
+                [df_mois["Date_Creation"].dt.day, "Etat_Commande"]
+            ).size().reset_index(name="Nombre De Commandes")
+            df_grouped.rename(columns={"Date_Creation": "Jour"}, inplace=True)
 
-                fig_livrees = px.bar(
-                    df_grouped2,
-                    x="Jour",
-                    y="Nombre De Commandes",
-                    color="Etat_Livraison",
-                    title=f"Commandes livrées - {mois_select}",
-                    barmode="stack",
-                    category_orders={"Etat_Livraison": ["Livrée", "Preparation Stock", "Retour"]},
-                    color_discrete_map={
-                        "Livrée": "#00DA36",
-                        "Preparation Stock": "#A7A7A7",
-                        "Retour": "#E70000",
-                        "En livraison": "#E79E00"
-                    }
-                )
-                fig_livrees.update_layout(height=450)
-                st.plotly_chart(fig_livrees, use_container_width=True)
+            fig_total = px.bar(
+                df_grouped,
+                x="Jour",
+                y="Nombre De Commandes",
+                color="Etat_Commande",
+                title=f"Évolution des commandes - {mois_select}",
+                barmode="stack",
+                category_orders={"Etat_Commande": ["Confirmée", "En confirmation", "Annulée"]},
+                color_discrete_map={
+                    "Confirmée": "#4DA6FF",
+                    "En confirmation": "#FFD966",
+                    "Annulée": "#FF4C4C"
+                }
+            )
+            fig_total.update_layout(height=450)
+            st.plotly_chart(fig_total, use_container_width=True)
 
-        # ===== Mode Annuel =====
-        else:
-            annees_dispo = sorted(df["Annee"].unique())
-            annee_select = st.selectbox("Choisir une année :", annees_dispo, key="annee_global")
+        # Graphique des fausses commandes par source (droite)
+        with evo_col2:
+            # Vérifier si la colonne existe avant de filtrer
+            if "Fausse_Commande" in df_mois.columns:
+                # Filtrer seulement les fausses commandes
+                df_fausses = df_mois[df_mois["Fausse_Commande"] == 1].copy()
+                
+                if not df_fausses.empty and "Source" in df_fausses.columns:
+                    df_fausses_grouped = df_fausses.groupby(
+                        [df_fausses["Date_Creation"].dt.day, "Source"]
+                    ).size().reset_index(name="Nombre De Fausses Commandes")
+                    df_fausses_grouped.rename(columns={"Date_Creation": "Jour"}, inplace=True)
 
-            df_annee = df[df["Annee"] == annee_select]
+                    fig_fausses = px.bar(
+                        df_fausses_grouped,
+                        x="Jour",
+                        y="Nombre De Fausses Commandes",
+                        color="Source",
+                        title=f"Fausses commandes par Source - {mois_select}",
+                        barmode="stack"
+                    )
+                    fig_fausses.update_layout(height=450)
+                    st.plotly_chart(fig_fausses, use_container_width=True)
+                else:
+                    st.info("Aucune fausse commande trouvée pour cette période")
+            else:
+                st.info("Colonne 'Fausse_Commande' non disponible")
 
-            evo_col1, evo_col2 = st.columns(2)
+    # ===== Mode Annuel =====
+    else:
+        annees_dispo = sorted(df["Annee"].unique())
+        annee_select = st.selectbox("Choisir une année :", annees_dispo, key="annee_global")
 
-            # Graphe total (gauche)
-            with evo_col1:
-                df_grouped = df_annee.groupby(
-                    [df_annee["Date_Creation"].dt.month, "Etat_Commande"]
-                ).size().reset_index(name="Nombre De Commandes")
-                df_grouped.rename(columns={"Date_Creation": "Mois"}, inplace=True)
+        df_annee = df[df["Annee"] == annee_select]
 
-                fig_total = px.bar(
-                    df_grouped,
-                    x="Mois",
-                    y="Nombre De Commandes",
-                    color="Etat_Commande",
-                    title=f"Évolution des commandes - {annee_select}",
-                    barmode="stack",
-                    category_orders={"Etat_Commande": ["Confirmée", "En confirmation", "Annulée"]},
-                    color_discrete_map={
-                        "Confirmée": "#4DA6FF",
-                        "En confirmation": "#FFD966",
-                        "Annulée": "#FF4C4C"
-                    }
-                )
-                fig_total.update_layout(height=450)
-                st.plotly_chart(fig_total, use_container_width=True)
+        # Créer deux colonnes pour les graphiques
+        evo_col1, evo_col2 = st.columns(2)
 
-            # Graphe livrées (droite)
-            with evo_col2:
-                df_grouped2 = df_annee.groupby(
-                    [df_annee["Date_Creation"].dt.month, "Etat_Livraison"]
-                ).size().reset_index(name="Nombre De Commandes")
-                df_grouped2.rename(columns={"Date_Creation": "Mois"}, inplace=True)
+        # Graphique d'évolution des commandes (gauche)
+        with evo_col1:
+            df_grouped = df_annee.groupby(
+                [df_annee["Date_Creation"].dt.month, "Etat_Commande"]
+            ).size().reset_index(name="Nombre De Commandes")
+            df_grouped.rename(columns={"Date_Creation": "Mois"}, inplace=True)
 
-                fig_livrees = px.bar(
-                    df_grouped2,
-                    x="Mois",
-                    y="Nombre De Commandes",
-                    color="Etat_Livraison",
-                    title=f"Commandes livrées - {annee_select}",
-                    barmode="stack",
-                    category_orders={"Etat_Livraison": ["Livrée", "Preparation Stock", "Retour"]},
-                    color_discrete_map={
-                        "Livrée": "#00DA36",
-                        "Preparation Stock": "#A7A7A7",
-                        "Retour": "#E70000",
-                        "En livraison": "#E79E00"
-                    }
-                )
-                fig_livrees.update_layout(height=450)
-                st.plotly_chart(fig_livrees, use_container_width=True)
+            fig_total = px.bar(
+                df_grouped,
+                x="Mois",
+                y="Nombre De Commandes",
+                color="Etat_Commande",
+                title=f"Évolution des commandes - {annee_select}",
+                barmode="stack",
+                category_orders={"Etat_Commande": ["Confirmée", "En confirmation", "Annulée"]},
+                color_discrete_map={
+                    "Confirmée": "#4DA6FF",
+                    "En confirmation": "#FFD966",
+                    "Annulée": "#FF4C4C"
+                }
+            )
+            fig_total.update_layout(height=450)
+            st.plotly_chart(fig_total, use_container_width=True)
 
-# =========================
-# 10. Contenu de la page Livraison et Stock
-# =========================
-elif st.session_state.page == 'livraison':
-    st.title("Dashboard Livraison et Stock")
-    st.info("Cette page est en cours de développement. Revenez bientôt!")
-    
-    # Vous pouvez ajouter ici le contenu de votre futur dashboard
-    st.write("Contenu du dashboard livraison et stock à venir...")
+        # Graphique des fausses commandes par source (droite)
+        with evo_col2:
+            # Vérifier si la colonne existe avant de filtrer
+            if "Fausse_Commande" in df_annee.columns:
+                # Filtrer seulement les fausses commandes
+                df_fausses = df_annee[df_annee["Fausse_Commande"] == 1].copy()
+                
+                if not df_fausses.empty and "Source" in df_fausses.columns:
+                    df_fausses_grouped = df_fausses.groupby(
+                        [df_fausses["Date_Creation"].dt.month, "Source"]
+                    ).size().reset_index(name="Nombre De Fausses Commandes")
+                    df_fausses_grouped.rename(columns={"Date_Creation": "Mois"}, inplace=True)
+
+                    fig_fausses = px.bar(
+                        df_fausses_grouped,
+                        x="Mois",
+                        y="Nombre De Fausses Commandes",
+                        color="Source",
+                        title=f"Fausses commandes par Source - {annee_select}",
+                        barmode="stack"
+                    )
+                    fig_fausses.update_layout(height=450)
+                    st.plotly_chart(fig_fausses, use_container_width=True)
+                else:
+                    st.info("Aucune fausse commande trouvée pour cette période")
+            else:
+                st.info("Colonne 'Fausse_Commande' non disponible")
