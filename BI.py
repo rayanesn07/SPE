@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import joblib
+from sklearn.preprocessing import OrdinalEncoder
+import os
+import numpy as np
 
 
 # =========================
@@ -90,6 +94,9 @@ with st.sidebar:
 
     if st.button("Dashboard Livraison et Stock", use_container_width=True):
         st.session_state.page = 'livraison'
+    
+    if st.button("Prédiction de fausses commandes", use_container_width=True):
+        st.session_state.page = 'prediction'
 
 # =========================
 # 5. Fonctions utilitaires réutilisables
@@ -245,7 +252,7 @@ if st.session_state.page == 'confirmation':
         df["Annee"] = df["Date_Creation"].dt.year
         df["Mois"] = df["Date_Creation"].dt.to_period("M").astype(str)
 
-        st.subheader("📈 Évolution des commandes")
+        st.subheader("Évolution des commandes")
 
         mode = st.radio("Type d'analyse :", ["Mensuelle", "Annuelle"], horizontal=True)
 
@@ -666,3 +673,115 @@ elif st.session_state.page == 'livraison':
         st.plotly_chart(algeria_map_retours, use_container_width=True)
     else:
         st.info("Pour afficher la carte des retours, assurez-vous d'avoir les colonnes 'Wilaya' et 'Etat_Livraison' dans vos données.")
+
+
+
+
+# ==============================================================================================================================================# 11. Contenu de la page Prédiction de fausses commandes
+# =============================================================================================================================================
+
+elif st.session_state.page == 'prediction':
+    st.title("Prédiction de fausses commandes")
+    st.write("Importez un fichier Excel contenant les colonnes nécessaires pour obtenir une prédiction.")
+
+    uploaded_file = st.file_uploader("📂 Joindre un fichier Excel", type=["xlsx"])
+
+    if uploaded_file is not None:
+        df_uploaded = pd.read_excel(uploaded_file)
+
+        # Colonnes attendues (dans le fichier utilisateur)
+        colonnes_attendues = [
+            "@ Ip du client",
+            "date de creation",
+            "nom prenom",
+            "numero de telephone",
+            "Qte",
+            "Wilaya",
+            "Commune",
+            "SKU d'article",
+            "Boutique",
+            "montant total"
+        ]
+
+        # Mapping vers les colonnes du modèle
+        mapping_colonnes = {
+            "@ Ip du client": "@_Ip_du_client",
+            "nom prenom": "nom_prenom",
+            "SKU d'article": "SKU_d_article",   # correction ici
+            "date de creation": "date_de_creation",
+            "numero de telephone": "numero_de_telephone",
+            "montant total": "montant_total"
+        }
+
+        if set(df_uploaded.columns) == set(colonnes_attendues):
+            st.success("Fichier valide. Prêt pour la prédiction.")
+
+            if st.button("Prédire"):
+                try:
+                    # Charger modèle + encodeur
+                    model = joblib.load("C:\\Users\\NoVa\\Documents\\lgb_model.joblib")
+                    encoder = None
+                    if os.path.exists("C:\\Users\\NoVa\\Documents\\ordinal_encoder.joblib"):
+                        encoder = joblib.load("C:\\Users\\NoVa\\Documents\\ordinal_encoder.joblib")
+
+                    # Renommer les colonnes selon le mapping
+                    X_new = df_uploaded.rename(columns=mapping_colonnes).copy()
+
+                    # -------- Prétraitement identique à l’entraînement --------
+                    # Gérer la colonne date
+                    date_cols = [c for c in X_new.columns if "date" in c.lower() or "creation" in c.lower()]
+                    if len(date_cols) > 0:
+                        date_col = date_cols[0]
+                        X_new[date_col] = pd.to_datetime(X_new[date_col], errors="coerce")
+                        X_new["year"] = X_new[date_col].dt.year.fillna(-1).astype(int)
+                        X_new["month"] = X_new[date_col].dt.month.fillna(-1).astype(int)
+                        X_new["day"] = X_new[date_col].dt.day.fillna(-1).astype(int)
+                        X_new["hour"] = X_new[date_col].dt.hour.fillna(-1).astype(int)
+                        X_new["minute"] = X_new[date_col].dt.minute.fillna(-1).astype(int)
+                        X_new["dayofweek"] = X_new[date_col].dt.dayofweek.fillna(-1).astype(int)
+                        X_new["ts"] = X_new[date_col].astype("int64").fillna(-1) // 10**9
+                        X_new = X_new.drop(columns=[date_col])
+
+                    # Gérer NaN
+                    num_cols = X_new.select_dtypes(include=[np.number]).columns.tolist()
+                    cat_cols = X_new.select_dtypes(include=["object", "category"]).columns.tolist()
+                    X_new[num_cols] = X_new[num_cols].fillna(-999)
+                    X_new[cat_cols] = X_new[cat_cols].fillna("NA")
+
+                    # Encoder les colonnes catégorielles
+                    if encoder is not None and len(cat_cols) > 0:
+                        X_new[cat_cols] = encoder.transform(X_new[cat_cols])
+
+                    # S’assurer que tout est numérique
+                    X_new = X_new.astype(float)
+                    # Aligner les colonnes avec le modèle (exactement celles de l'entraînement)
+                    expected_features = model.booster_.feature_name()
+
+                    X_new = X_new.reindex(columns=expected_features, fill_value=-999)
+
+                    # -------- Prédiction --------
+                    y_proba = model.predict_proba(X_new)[:, 1]
+                    y_pred = (y_proba >= 0.5).astype(int)
+
+                    # Ajouter la colonne résultat
+                    df_uploaded["Fausse_commande_predite"] = y_pred
+
+                    st.success("Prédictions effectuées avec succès.")
+                    st.dataframe(df_uploaded)
+
+                    # Option de téléchargement
+                    output_path = "predictions_result.xlsx"
+                    df_uploaded.to_excel(output_path, index=False)
+                    with open(output_path, "rb") as f:
+                        st.download_button("📥 Télécharger le fichier avec prédictions", f, file_name="predictions_result.xlsx")
+
+                except Exception as e:
+                    st.error(f"❌ Erreur lors de la prédiction : {e}")
+
+        else:
+            st.error("❌ Le fichier n'est pas valide. Colonnes incorrectes.")
+            st.write("Colonnes attendues :", colonnes_attendues)
+            st.write("Colonnes trouvées :", list(df_uploaded.columns))
+
+
+
